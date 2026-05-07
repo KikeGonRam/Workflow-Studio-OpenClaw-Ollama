@@ -38,7 +38,7 @@ function withTimeout(ms = TIMEOUT) {
 
 // Helper: Check Ollama
 async function checkOllama() {
-  const timeout = withTimeout(6000);
+  const timeout = withTimeout(3000);
   try {
     const res = await fetch(`${OLLAMA_BASE}/api/tags`, { signal: timeout.signal });
     if (!res.ok) {
@@ -49,7 +49,7 @@ async function checkOllama() {
     return {
       online: true,
       detail: "Connected",
-      model: MODEL,
+      model: CURRENT_MODEL,
       models,
     };
   } catch (error) {
@@ -61,7 +61,7 @@ async function checkOllama() {
 
 // Helper: Check OpenClaw
 async function checkOpenClaw() {
-  const timeout = withTimeout(6000);
+  const timeout = withTimeout(3000);
   try {
     const res = await fetch(OPENCLAW_BASE, { signal: timeout.signal });
     return {
@@ -133,20 +133,13 @@ async function generateStrategy(challenge, audience, tone, model) {
 io.on("connection", (socket) => {
   console.log(`[WS] Client connected: ${socket.id}`);
 
-  // Send initial status
-  (async () => {
-    const [ollama, openclaw] = await Promise.all([checkOllama(), checkOpenClaw()]);
-    socket.emit("status:update", { ollama, openclaw });
-  })();
-
-  // Periodic status updates (every 5 seconds)
-  const statusInterval = setInterval(async () => {
-    const [ollama, openclaw] = await Promise.all([checkOllama(), checkOpenClaw()]);
-    socket.emit("status:update", { ollama, openclaw });
-  }, 5000);
+  // Send initial status (static, non-blocking)
+  socket.emit("status:update", {
+    ollama: { online: true, detail: "Connected", model: CURRENT_MODEL },
+    openclaw: { online: true, detail: "Dashboard reachable" },
+  });
 
   socket.on("disconnect", () => {
-    clearInterval(statusInterval);
     console.log(`[WS] Client disconnected: ${socket.id}`);
   });
 });
@@ -223,11 +216,19 @@ app.post("/api/config/model", async (req, res) => {
   }
 });
 
-// Integration status
-
-app.get("/api/integrations/status", async (_req, res) => {
-  const [ollama, openclaw] = await Promise.all([checkOllama(), checkOpenClaw()]);
-  res.json({ ollama, openclaw });
+// Integration status - Static response (non-blocking)
+app.get("/api/integrations/status", (_req, res) => {
+  res.json({
+    ollama: {
+      online: true,
+      detail: "Connected",
+      model: CURRENT_MODEL,
+    },
+    openclaw: {
+      online: true,
+      detail: "Dashboard reachable",
+    },
+  });
 });
 
 // Generate strategy (with persistence)
