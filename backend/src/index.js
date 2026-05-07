@@ -26,7 +26,7 @@ app.use(express.json({ limit: "1mb" }));
 const PORT = Number(process.env.PORT || 8080);
 const OLLAMA_BASE = process.env.OLLAMA_BASE_URL || "http://host.docker.internal:11434";
 const OPENCLAW_BASE = process.env.OPENCLAW_DASHBOARD_URL || "http://host.docker.internal:18789";
-const MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
+let CURRENT_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
 const TIMEOUT = 25000;
 
 // Helper: Timeout wrapper
@@ -77,7 +77,8 @@ async function checkOpenClaw() {
 }
 
 // Helper: Generate strategy with Ollama
-async function generateStrategy(challenge, audience, tone) {
+async function generateStrategy(challenge, audience, tone, model) {
+  const modelToUse = model || CURRENT_MODEL;
   const timeout = withTimeout();
   try {
     const prompt = [
@@ -98,7 +99,7 @@ async function generateStrategy(challenge, audience, tone) {
       headers: { "Content-Type": "application/json" },
       signal: timeout.signal,
       body: JSON.stringify({
-        model: MODEL,
+        model: modelToUse,
         stream: false,
         options: { temperature: 0.7 },
         messages: [
@@ -158,11 +159,72 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     service: "openclaw-ollama-backend",
     time: new Date().toISOString(),
-    model: MODEL,
+    model: CURRENT_MODEL,
   });
 });
 
+// Get available models
+app.get("/api/models", async (req, res) => {
+  const timeout = withTimeout(10000);
+  try {
+    const ollamaRes = await fetch(`${OLLAMA_BASE}/api/tags`, { signal: timeout.signal });
+    if (!ollamaRes.ok) {
+      return res.status(502).json({ ok: false, error: "Ollama not responding" });
+    }
+    const data = await ollamaRes.json();
+    const models = (data.models || []).map((m) => ({
+      name: m.name,
+      size: Math.round((m.size / (1024 ** 3)) * 100) / 100,
+      digest: m.digest.substring(0, 12),
+    }));
+    
+    res.json({
+      ok: true,
+      data: {
+        available: models,
+        current: CURRENT_MODEL,
+      },
+    });
+  } catch (error) {
+    res.status(502).json({ ok: false, error: error.message });
+  }
+});
+
+// Change current model
+app.post("/api/config/model", async (req, res) => {
+  const { model } = req.body;
+  if (!model) {
+    return res.status(400).json({ ok: false, error: "Model name required" });
+  }
+
+  const timeout = withTimeout(10000);
+  try {
+    const testRes = await fetch(`${OLLAMA_BASE}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt: "test",
+        stream: false,
+      }),
+      signal: timeout.signal,
+    });
+
+    if (!testRes.ok) {
+      return res.status(404).json({ ok: false, error: "Model not found in Ollama" });
+    }
+
+    CURRENT_MODEL = model;
+    io.emit("model:changed", { model: CURRENT_MODEL });
+
+    res.json({ ok: true, message: "Model changed", current: CURRENT_MODEL });
+  } catch (error) {
+    res.status(502).json({ ok: false, error: error.message });
+  }
+});
+
 // Integration status
+
 app.get("/api/integrations/status", async (_req, res) => {
   const [ollama, openclaw] = await Promise.all([checkOllama(), checkOpenClaw()]);
   res.json({ ollama, openclaw });
@@ -170,7 +232,8 @@ app.get("/api/integrations/status", async (_req, res) => {
 
 // Generate strategy (with persistence)
 app.post("/api/ai/strategy", async (req, res) => {
-  const { challenge, audience = "emprendedores", tone = "ejecutivo" } = req.body || {};
+  const { challenge, audience = "emprendedores", tone = "ejecutivo", model } = req.body || {};
+  const selectedModel = model || CURRENT_MODEL;
 
   if (!challenge || typeof challenge !== "string" || challenge.trim().length < 10) {
     return res.status(400).json({
@@ -181,12 +244,12 @@ app.post("/api/ai/strategy", async (req, res) => {
 
   try {
     // Notify clients: generating
-    io.emit("strategy:generating", { challenge, audience, tone });
+    io.emit("strategy:generating", { challenge, audience, tone, model: selectedModel });
 
-    const content = await generateStrategy(challenge, audience, tone);
+    const content = await generateStrategy(challenge, audience, tone, selectedModel);
 
     // Save to database
-    const id = db_save_strategy(challenge, audience, tone, content);
+    const id = await db_save_strategy(challenge, audience, tone, content);
 
     // Notify clients: generated
     io.emit("strategy:generated", {
@@ -198,7 +261,18 @@ app.post("/api/ai/strategy", async (req, res) => {
       created_at: new Date().toISOString(),
     });
 
-    res.json({ ok: true, id, content, timestamp: new Date().toISOString() });
+    res.json({
+      ok: true,
+      data: {
+        id,
+        challenge,
+        audience,
+        tone,
+        model: selectedModel,
+        content,
+        timestamp: new Date().toISOString(),
+      },
+    });
   } catch (error) {
     io.emit("strategy:error", { error: error.message });
     res.status(502).json({
@@ -272,7 +346,7 @@ app.get("/api/stats", async (req, res) => {
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`\n◇ Backend listening on http://0.0.0.0:${PORT}`);
   console.log(`  WebSocket: ws://0.0.0.0:${PORT}`);
-  console.log(`  Model: ${MODEL}`);
+  console.log(`  Model: ${CURRENT_MODEL}`);
   console.log(`  Ollama: ${OLLAMA_BASE}`);
   console.log(`  OpenClaw: ${OPENCLAW_BASE}`);
   console.log("");

@@ -97,6 +97,29 @@ export function SettingsView() {
         };
   });
 
+  const [models, setModels] = useState([]);
+  const [currentModel, setCurrentModel] = useState("");
+  const [loadingModels, setLoadingModels] = useState(true);
+
+  // Load available models on mount
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const res = await fetch("/api/models");
+        const data = await res.json();
+        if (data.ok) {
+          setModels(data.data.available || []);
+          setCurrentModel(data.data.current || "");
+        }
+      } catch (err) {
+        console.error("Error loading models:", err);
+      } finally {
+        setLoadingModels(false);
+      }
+    };
+    loadModels();
+  }, []);
+
   // Apply theme
   useEffect(() => {
     const theme = THEMES[currentTheme];
@@ -119,6 +142,25 @@ export function SettingsView() {
 
   const handlePreferenceChange = (key, value) => {
     setPreferences((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleModelChange = async (modelName) => {
+    setLoadingModels(true);
+    try {
+      const res = await fetch("/api/config/model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: modelName }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setCurrentModel(modelName);
+      }
+    } catch (err) {
+      console.error("Error changing model:", err);
+    } finally {
+      setLoadingModels(false);
+    }
   };
 
   return (
@@ -161,7 +203,54 @@ export function SettingsView() {
       </section>
 
       <section className="settings-section">
+        <h3>🤖 Modelos de IA</h3>
+        <p style={{ marginBottom: "1rem", color: "var(--text-secondary)" }}>
+          Selecciona el modelo Ollama para generar estrategias
+        </p>
+        {loadingModels ? (
+          <p style={{ color: "var(--text-muted)" }}>Cargando modelos...</p>
+        ) : models.length === 0 ? (
+          <p style={{ color: "var(--text-muted)" }}>No hay modelos disponibles</p>
+        ) : (
+          <div className="models-list">
+            {models.map((model) => (
+              <button
+                key={model.name}
+                className={`model-option ${currentModel === model.name ? "active" : ""}`}
+                onClick={() => handleModelChange(model.name)}
+                disabled={loadingModels}
+                style={{
+                  padding: "0.75rem 1rem",
+                  marginBottom: "0.5rem",
+                  border:
+                    currentModel === model.name
+                      ? "2px solid var(--accent)"
+                      : "2px solid var(--bg-secondary)",
+                  backgroundColor: currentModel === model.name ? "var(--accent)" : "transparent",
+                  color:
+                    currentModel === model.name
+                      ? "var(--bg-primary)"
+                      : "var(--text-primary)",
+                  borderRadius: "8px",
+                  cursor: loadingModels ? "not-allowed" : "pointer",
+                  transition: "all 0.3s ease",
+                  width: "100%",
+                  textAlign: "left",
+                }}
+              >
+                <strong>{model.name}</strong>
+                <span style={{ marginLeft: "0.5rem", opacity: 0.7 }}>
+                  ({model.size.toFixed(2)} GB)
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="settings-section">
         <h3>Preferencias</h3>
+
 
         <label className="setting-option">
           <input
