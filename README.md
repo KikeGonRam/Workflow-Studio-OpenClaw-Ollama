@@ -24,7 +24,10 @@ Sitio web profesional fullstack dockerizado para demostrar lo que puedes constru
 ## Requisitos
 
 - Docker Desktop
-- Ollama corriendo localmente (ejemplo: `qwen2.5:0.5b`)
+- Ollama corriendo localmente con modelos instalados:
+  - `qwen2.5:0.5b` (370 MB - rápido, ligero, predeterminado)
+  - `llama3.2:latest` (1.88 GB - balance)
+  - `dolphin-mixtral:latest` (26 GB - poderoso, opcional)
 - OpenClaw opcional para mostrar estado (`http://127.0.0.1:18789`)
 
 ## Ejecutar
@@ -65,9 +68,15 @@ Response:
 ### `POST /api/config/model` - Cambiar Modelo
 
 ```bash
+# Cambiar a Llama 3.2
 curl -X POST http://localhost:8080/api/config/model \
   -H "Content-Type: application/json" \
   -d '{"model":"llama3.2:latest"}'
+
+# Cambiar a Dolphin Mixtral (cuando esté listo)
+curl -X POST http://localhost:8080/api/config/model \
+  -H "Content-Type: application/json" \
+  -d '{"model":"dolphin-mixtral:latest"}'
 ```
 
 ### `POST /api/ai/strategy` - Generar Estrategia
@@ -111,7 +120,9 @@ Devuelve estado de Ollama y OpenClaw.
 - ✅ **Dark Mode** - 6 temas personalizables
 - ✅ **Analytics** - Gráficos y estadísticas
 
-📖 **Documentación detallada:** Ver [MODEL-SELECTOR-GUIDE.md](./MODEL-SELECTOR-GUIDE.md)
+📖 **Documentación detallada:** 
+- [MODELS.md](./MODELS.md) - Comparación y uso de modelos disponibles
+- [MODEL-SELECTOR-GUIDE.md](./MODEL-SELECTOR-GUIDE.md) - Guía del selector de modelos
 
 ## Detener
 
